@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Read", "Edit",
+      "Bash(psql *)", "Bash(python3 *)", "Bash(pip install *)",
+      "Bash(pytest *)", "Bash(uvicorn *)", "Bash(docker *)"
+    ]
+  }
+}
