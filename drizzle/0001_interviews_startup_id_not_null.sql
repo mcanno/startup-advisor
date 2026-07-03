@@ -1,0 +1,1 @@
+ALTER TABLE "interviews" ALTER COLUMN "startup_id" SET NOT NULL;
