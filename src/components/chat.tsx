@@ -12,21 +12,47 @@ export type ChatMessage = {
 type Props = {
   interviewId: string;
   initialMessages: ChatMessage[];
+  readOnly?: boolean;
 };
 
-export function Chat({ interviewId, initialMessages }: Props) {
+export function Chat({ interviewId, initialMessages, readOnly = false }: Props) {
   const [messages, setMessages] = useState<ChatMessage[]>(initialMessages);
   const [input, setInput] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
   const scrollRef = useRef<HTMLDivElement>(null);
+  const isNearBottomRef = useRef(true);
+  const hasScrolledInitiallyRef = useRef(false);
+
+  const NEAR_BOTTOM_THRESHOLD_PX = 150;
+
+  // Rastrea si el usuario está cerca del final, actualizado por sus propios
+  // scrolls (no por el crecimiento del contenido, que no dispara "scroll").
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+
+    const handleScroll = () => {
+      const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+      isNearBottomRef.current = distanceFromBottom < NEAR_BOTTOM_THRESHOLD_PX;
+    };
+
+    el.addEventListener("scroll", handleScroll);
+    return () => el.removeEventListener("scroll", handleScroll);
+  }, []);
 
   useEffect(() => {
-    scrollRef.current?.scrollTo({
-      top: scrollRef.current.scrollHeight,
-      behavior: "smooth",
-    });
+    const el = scrollRef.current;
+    if (!el || !isNearBottomRef.current) return;
+
+    if (!hasScrolledInitiallyRef.current) {
+      // Primera carga: ya arranca abajo del todo, sin animación.
+      el.scrollTop = el.scrollHeight;
+      hasScrolledInitiallyRef.current = true;
+    } else {
+      el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+    }
   }, [messages]);
 
   async function send(e: React.FormEvent) {
@@ -132,34 +158,36 @@ export function Chat({ interviewId, initialMessages }: Props) {
         </div>
       )}
 
-      <form
-        onSubmit={send}
-        className="sticky bottom-0 border-t border-zinc-200 bg-zinc-50/80 px-4 py-4 backdrop-blur dark:border-zinc-800 dark:bg-zinc-950/80"
-      >
-        <div className="flex gap-2">
-          <textarea
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                void send(e as unknown as React.FormEvent);
-              }
-            }}
-            placeholder="Escribe tu respuesta…"
-            rows={2}
-            disabled={isStreaming}
-            className="flex-1 resize-none rounded-2xl border border-zinc-300 bg-white px-4 py-3 text-sm focus:border-zinc-500 focus:outline-none disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-900"
-          />
-          <button
-            type="submit"
-            disabled={isStreaming || input.trim().length === 0}
-            className="rounded-2xl bg-zinc-900 px-5 text-sm font-medium text-white hover:bg-zinc-700 disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900"
-          >
-            Enviar
-          </button>
-        </div>
-      </form>
+      {!readOnly && (
+        <form
+          onSubmit={send}
+          className="sticky bottom-0 border-t border-zinc-200 bg-zinc-50/80 px-4 py-4 backdrop-blur dark:border-zinc-800 dark:bg-zinc-950/80"
+        >
+          <div className="flex gap-2">
+            <textarea
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  void send(e as unknown as React.FormEvent);
+                }
+              }}
+              placeholder="Escribe tu respuesta…"
+              rows={2}
+              disabled={isStreaming}
+              className="flex-1 resize-none rounded-2xl border border-zinc-300 bg-white px-4 py-3 text-sm focus:border-zinc-500 focus:outline-none disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-900"
+            />
+            <button
+              type="submit"
+              disabled={isStreaming || input.trim().length === 0}
+              className="rounded-2xl bg-zinc-900 px-5 text-sm font-medium text-white hover:bg-zinc-700 disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900"
+            >
+              Enviar
+            </button>
+          </div>
+        </form>
+      )}
     </div>
   );
 }
