@@ -65,6 +65,12 @@ export default async function ReportPage({
               {r.fase_estimada}
             </span>
           </p>
+          <Link
+            href={`/interview/${id}/transcript`}
+            className="w-fit text-sm text-zinc-500 hover:text-zinc-700 hover:underline dark:text-zinc-400 dark:hover:text-zinc-200"
+          >
+            Ver conversación original
+          </Link>
         </div>
 
         <Section title="Resumen ejecutivo">
