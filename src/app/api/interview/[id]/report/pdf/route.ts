@@ -2,6 +2,7 @@ import { auth } from "@clerk/nextjs/server";
 import { renderToBuffer } from "@react-pdf/renderer";
 import { getInterviewForUser, getReport } from "@/lib/db/queries";
 import { ReportPdf } from "@/lib/report-pdf";
+import { signReport } from "@/lib/pdf-signing";
 
 export const runtime = "nodejs";
 
@@ -26,8 +27,15 @@ export async function GET(
     return new Response("Report not found", { status: 404 });
   }
 
+  const timestamp = new Date().toISOString();
+  const signature = signReport(interview.startupId, report.id, timestamp);
+
   const pdfBuffer = await renderToBuffer(
-    ReportPdf({ title: interview.title, report: report.content }),
+    ReportPdf({
+      title: interview.title,
+      report: report.content,
+      verification: { startupId: interview.startupId, reportId: report.id, timestamp, signature },
+    }),
   );
 
   const filename = `informe-${interview.title
