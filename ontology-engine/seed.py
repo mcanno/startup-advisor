@@ -31,14 +31,15 @@ UPSERT_CONCEPT = """
 """
 
 UPSERT_RELATION = """
-    INSERT INTO ontology_relations (id, label, domain_concept_id, range_concept_id, definition, cardinality)
-    VALUES (%s, %s, %s, %s, %s, %s)
+    INSERT INTO ontology_relations (id, label, domain_concept_id, range_concept_id, definition, cardinality, is_sequential)
+    VALUES (%s, %s, %s, %s, %s, %s, %s)
     ON CONFLICT (id) DO UPDATE SET
         label = EXCLUDED.label,
         domain_concept_id = EXCLUDED.domain_concept_id,
         range_concept_id = EXCLUDED.range_concept_id,
         definition = EXCLUDED.definition,
-        cardinality = EXCLUDED.cardinality;
+        cardinality = EXCLUDED.cardinality,
+        is_sequential = EXCLUDED.is_sequential;
 """
 
 
@@ -60,7 +61,7 @@ def seed(database_url: str) -> None:
             # 2) Relaciones (ya pueden referenciar cualquier concepto)
             for r in RELATIONS:
                 cur.execute(UPSERT_RELATION, (
-                    r.id, r.label, r.domain, r.range, r.definition, r.cardinality.value,
+                    r.id, r.label, r.domain, r.range, r.definition, r.cardinality.value, r.is_sequential,
                 ))
             print(f"[seed] {len(RELATIONS)} relaciones insertadas/actualizadas")
 

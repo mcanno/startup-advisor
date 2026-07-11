@@ -6,6 +6,7 @@ Endpoints:
   GET  /concepts                                  -> lista el TBox completo
   GET  /concepts/{concept_id}                      -> describe() de un concepto
   GET  /concepts/{concept_id}/subclasses           -> subclasses_of()
+  GET  /concepts/{concept_id}/prerequisitos         -> precedents_of() (TBox abstracto, sin ABox)
   GET  /startups/{startup_id}/graph                -> ABox completo (debug)
   GET  /startups/{startup_id}/neighbors/{node_id}?relation=X  -> neighbors_via()
   GET  /startups/{startup_id}/validate             -> validate() (motor de reglas)
@@ -39,7 +40,12 @@ async def lifespan(app: FastAPI):
     global pool, tbox_cache
     if not DATABASE_URL:
         raise RuntimeError("DATABASE_URL no está definida")
-    pool = ConnectionPool(DATABASE_URL, min_size=1, max_size=5)
+    # check=check_connection: valida la conexion (ping real) antes de
+    # entregarla del pool, y la descarta/reconecta si Neon ya la cerro del
+    # lado servidor (autosuspend/idle timeout) -- sin esto, una conexion
+    # pooled obsoleta fallaba con "SSL connection has been closed
+    # unexpectedly" en la primera request tras un periodo de inactividad.
+    pool = ConnectionPool(DATABASE_URL, min_size=1, max_size=5, check=ConnectionPool.check_connection)
     with pool.connection() as conn:
         tbox_cache = load_tbox(conn)
     yield
@@ -86,6 +92,16 @@ def get_subclasses(concept_id: str):
     if concept_id not in og.g:
         raise HTTPException(status_code=404, detail=f"Concepto '{concept_id}' no existe")
     return {"concept_id": concept_id, "subclasses": og.subclasses_of(concept_id)}
+
+
+@app.get("/concepts/{concept_id}/prerequisitos")
+def get_prerequisitos(concept_id: str):
+    # A propósito, sin 404: [] tanto si no hay precedentes como si
+    # concept_id no existe (razonamiento abstracto sobre el TBox, no
+    # hechos de una startup — un id desconocido no es un error del
+    # caller, sección de diseño acordada).
+    og = get_tbox()
+    return {"concept_id": concept_id, "prerequisitos": og.precedents_of(concept_id)}
 
 
 # ---------------------------------------------------------------- ABox (lectura)

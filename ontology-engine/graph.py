@@ -40,7 +40,8 @@ class OntologyGraph:
             if row["domain_concept_id"] in self.g and row["range_concept_id"] in self.g:
                 self.g.add_edge(row["domain_concept_id"], row["range_concept_id"],
                                  relation=row["id"], label=row["label"],
-                                 definition=row["definition"], cardinality=row["cardinality"])
+                                 definition=row["definition"], cardinality=row["cardinality"],
+                                 is_sequential=row.get("is_sequential", False))
 
     # ---------- ABox ----------
     def load_individuals_from_rows(self, rows):
@@ -83,6 +84,42 @@ class OntologyGraph:
                     frontier.append(tgt)
         return seen
 
+    def precedents_of(self, concept_id: str) -> list[dict]:
+        """BFS hacia atrás (in_edges) sobre aristas is_sequential=True,
+        arrancando del TBox que ya carga load_tbox() — sin ABox, sin
+        tocar Postgres de nuevo. Devuelve [] tanto si concept_id no
+        existe como si no tiene precedentes: este endpoint no debe
+        fallar por un id desconocido (ver main.py).
+
+        Nota de desviación respecto al pedido original: la firma pedida
+        era `-> list[Concept]` (el dataclass de domain_ontology.py), pero
+        el contrato del endpoint necesita, por cada precedente, la
+        relación que lo conecta y la distancia en saltos — datos que
+        Concept no tiene y que graph.py no puede reconstruir sin
+        importar domain_ontology.py (hoy deliberadamente desacoplado de
+        él, ver docstring del módulo). Devuelve dicts con
+        concept_id/relacion/distancia en su lugar, que es exactamente
+        lo que el endpoint expone.
+        """
+        if concept_id not in self.g:
+            return []
+
+        results: list[dict] = []
+        seen = {concept_id}
+        frontier = [concept_id]
+        distancia = 0
+        while frontier:
+            distancia += 1
+            next_frontier = []
+            for node in frontier:
+                for src, _, d in self.g.in_edges(node, data=True):
+                    if d.get("is_sequential") and src not in seen:
+                        seen.add(src)
+                        results.append({"concept_id": src, "relacion": d.get("relation"), "distancia": distancia})
+                        next_frontier.append(src)
+            frontier = next_frontier
+        return results
+
     def describe(self, node_id: str) -> str:
         d = self.g.nodes[node_id]
         base = f"{node_id} ({d.get('label')}): {d.get('definition', '')}"
@@ -110,8 +147,8 @@ def load_tbox(conn) -> OntologyGraph:
         cur.execute("SELECT id, label, definition, source, parent_id FROM ontology_concepts;")
         og.load_concepts_from_rows(cur.fetchall())
 
-        cur.execute("SELECT id, label, domain_concept_id, range_concept_id, definition, cardinality "
-                    "FROM ontology_relations;")
+        cur.execute("SELECT id, label, domain_concept_id, range_concept_id, definition, cardinality, "
+                    "is_sequential FROM ontology_relations;")
         og.load_relations_from_rows(cur.fetchall())
     return og
 

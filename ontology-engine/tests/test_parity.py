@@ -41,7 +41,7 @@ def _build_tbox_graph_from_domain() -> OntologyGraph:
     relation_rows = [
         {"id": r.id, "label": r.label, "domain_concept_id": r.domain,
          "range_concept_id": r.range, "definition": r.definition,
-         "cardinality": r.cardinality.value}
+         "cardinality": r.cardinality.value, "is_sequential": r.is_sequential}
         for r in RELATIONS
     ]
     og = OntologyGraph()
@@ -78,6 +78,27 @@ def test_hypothesis_subclasses_match_notebook(tbox):
 def test_describe_includes_source(tbox):
     desc = tbox.describe("Hypothesis")
     assert "Blank/Ries" in desc
+
+
+def test_precedents_of_mvp_follows_implicit_chain(tbox):
+    """Caso que precede_a literal NO puede responder (no toca MVP en
+    absoluto) — confirma que precedents_of() sigue la cadena implícita
+    Hypothesis -> Experiment -> MVP vía se_testea_con/produce, no solo
+    la relación llamada 'precede_a'."""
+    prereqs = tbox.precedents_of("MVP")
+    by_id = {p["concept_id"]: p for p in prereqs}
+    assert set(by_id) == {"Hypothesis", "Experiment"}
+    assert by_id["Experiment"] == {"concept_id": "Experiment", "relacion": "produce", "distancia": 1}
+    assert by_id["Hypothesis"] == {"concept_id": "Hypothesis", "relacion": "se_testea_con", "distancia": 2}
+
+
+def test_precedents_of_concept_without_predecessors_is_empty(tbox):
+    # Founder no tiene ninguna arista is_sequential entrante.
+    assert tbox.precedents_of("Founder") == []
+
+
+def test_precedents_of_unknown_concept_is_empty_not_error(tbox):
+    assert tbox.precedents_of("NoExiste") == []
 
 
 def test_validate_rules_detect_hypothesis_without_experiment(tbox):

@@ -38,6 +38,13 @@ class Relation:
     range: str
     definition: str
     cardinality: RelationCardinality = RelationCardinality.ONE_TO_MANY
+    # True si domain precede a range en el tiempo/metodología (no solo una
+    # asociación estructural). Verificado a mano contra la definición de
+    # cada una de las 9 relaciones marcadas — todas consistentes en la
+    # misma dirección (domain precede a range). R1/R2 de rules.py ya
+    # trataban se_testea_con/informa_decision_pivot como precedencia sobre
+    # hechos reales; esto lo formaliza en el TBox.
+    is_sequential: bool = False
 
 
 CONCEPTS: list[Concept] = [
@@ -150,22 +157,22 @@ RELATIONS: list[Relation] = [
              RelationCardinality.ONE_TO_MANY),
     Relation("se_testea_con", "se testea con", "Hypothesis", "Experiment",
              "Toda hipótesis debe contrastarse mediante un experimento diseñado científicamente.",
-             RelationCardinality.ONE_TO_MANY),
+             RelationCardinality.ONE_TO_MANY, is_sequential=True),
     Relation("produce", "produce", "Experiment", "MVP",
              "Un experimento habitualmente se ejecuta construyendo un MVP.",
-             RelationCardinality.ONE_TO_ONE),
+             RelationCardinality.ONE_TO_ONE, is_sequential=True),
     Relation("se_mide_con", "se mide con", "MVP", "Metric",
              "El comportamiento de los clientes frente al MVP se mide con métricas.",
-             RelationCardinality.ONE_TO_MANY),
+             RelationCardinality.ONE_TO_MANY, is_sequential=True),
     Relation("genera_aprendizaje", "genera", "Metric", "ValidatedLearning",
              "El análisis de las métricas genera (o no) aprendizaje validado.",
-             RelationCardinality.MANY_TO_MANY),
+             RelationCardinality.MANY_TO_MANY, is_sequential=True),
     Relation("informa_decision_pivot", "informa decisión de pivotar", "ValidatedLearning", "Pivot",
              "El aprendizaje validado puede llevar a la decisión de pivotar.",
-             RelationCardinality.ONE_TO_MANY),
+             RelationCardinality.ONE_TO_MANY, is_sequential=True),
     Relation("informa_decision_perseverar", "informa decisión de perseverar", "ValidatedLearning",
              "Persevere", "El aprendizaje validado puede llevar a la decisión de perseverar.",
-             RelationCardinality.ONE_TO_MANY),
+             RelationCardinality.ONE_TO_MANY, is_sequential=True),
     Relation("modifica_bloque", "modifica", "Pivot", "BusinessModelCanvas",
              "Un pivote implica modificar uno o más bloques del canvas.",
              RelationCardinality.ONE_TO_MANY),
@@ -173,11 +180,14 @@ RELATIONS: list[Relation] = [
              "La startup atraviesa las 4 fases de Customer Development de forma secuencial.",
              RelationCardinality.ONE_TO_MANY),
     Relation("precede_a", "precede a", "CustomerDiscovery", "CustomerValidation",
-             "Orden secuencial de las fases de Customer Development.", RelationCardinality.ONE_TO_ONE),
+             "Orden secuencial de las fases de Customer Development.", RelationCardinality.ONE_TO_ONE,
+             is_sequential=True),
     Relation("precede_a_2", "precede a", "CustomerValidation", "CustomerCreation",
-             "Orden secuencial de las fases de Customer Development.", RelationCardinality.ONE_TO_ONE),
+             "Orden secuencial de las fases de Customer Development.", RelationCardinality.ONE_TO_ONE,
+             is_sequential=True),
     Relation("precede_a_3", "precede a", "CustomerCreation", "CompanyBuilding",
-             "Orden secuencial de las fases de Customer Development.", RelationCardinality.ONE_TO_ONE),
+             "Orden secuencial de las fases de Customer Development.", RelationCardinality.ONE_TO_ONE,
+             is_sequential=True),
     Relation("ejecuta_ciclo", "ejecuta", "Startup", "BuildMeasureLearnLoop",
              "La startup ejecuta el ciclo de forma continua e iterativa.",
              RelationCardinality.ONE_TO_MANY),
