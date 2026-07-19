@@ -22,6 +22,7 @@ import json
 from contextlib import asynccontextmanager
 
 import psycopg
+from psycopg.errors import ForeignKeyViolation
 from psycopg_pool import ConnectionPool
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
@@ -154,25 +155,47 @@ def create_individual(startup_id: str, body: IndividualIn):
     og = get_tbox()
     if body.concept_id not in og.g or og.g.nodes[body.concept_id].get("node_type") != "concept":
         raise HTTPException(status_code=400, detail=f"concept_id '{body.concept_id}' no existe en el TBox")
-    with pool.connection() as conn:
-        conn.execute(
-            "INSERT INTO startup_individuals (startup_id, id, concept_id, label, attributes) "
-            "VALUES (%s, %s, %s, %s, %s) "
-            "ON CONFLICT (startup_id, id) DO UPDATE SET "
-            "concept_id = EXCLUDED.concept_id, label = EXCLUDED.label, attributes = EXCLUDED.attributes;",
-            (startup_id, body.id, body.concept_id, body.label, json.dumps(body.attributes)),
+    try:
+        with pool.connection() as conn:
+            conn.execute(
+                "INSERT INTO startup_individuals (startup_id, id, concept_id, label, attributes) "
+                "VALUES (%s, %s, %s, %s, %s) "
+                "ON CONFLICT (startup_id, id) DO UPDATE SET "
+                "concept_id = EXCLUDED.concept_id, label = EXCLUDED.label, attributes = EXCLUDED.attributes;",
+                (startup_id, body.id, body.concept_id, body.label, json.dumps(body.attributes)),
+            )
+            conn.commit()
+    except ForeignKeyViolation:
+        # fk_startup_individuals_startup (startup_id -> startups.id) -- ver
+        # HANDOFF.md de este servicio. Antes esto llegaba al caller como un
+        # 500 sin detalle (excepción no manejada); startup_id inexistente en
+        # la tabla `startups` de la app es un error del caller, no un fallo
+        # interno del servicio.
+        raise HTTPException(
+            status_code=404,
+            detail=f"startup_id '{startup_id}' no existe en la tabla startups -- registrala primero del lado de la app.",
         )
-        conn.commit()
     return {"ok": True}
 
 
 @app.post("/startups/{startup_id}/facts", status_code=201)
 def create_fact(startup_id: str, body: FactIn):
-    with pool.connection() as conn:
-        conn.execute(
-            "INSERT INTO startup_facts (startup_id, source_id, relation, target_id, attributes) "
-            "VALUES (%s, %s, %s, %s, %s);",
-            (startup_id, body.source_id, body.relation, body.target_id, json.dumps(body.attributes)),
+    try:
+        with pool.connection() as conn:
+            conn.execute(
+                "INSERT INTO startup_facts (startup_id, source_id, relation, target_id, attributes) "
+                "VALUES (%s, %s, %s, %s, %s);",
+                (startup_id, body.source_id, body.relation, body.target_id, json.dumps(body.attributes)),
+            )
+            conn.commit()
+    except ForeignKeyViolation:
+        # Mismo patrón que create_individual: source_id/target_id deben
+        # referenciar individuals ya creados para esta misma startup_id.
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                f"source_id '{body.source_id}' o target_id '{body.target_id}' no existen como "
+                f"individuals de startup_id '{startup_id}' -- creá los individuals primero."
+            ),
         )
-        conn.commit()
     return {"ok": True}
