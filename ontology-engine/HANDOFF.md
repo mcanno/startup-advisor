@@ -2,6 +2,51 @@
 
 Última actualización: 2026-07-19.
 
+## Pendiente real: `startup_facts` está vacía para las 11 startups reales — auditado, no es el bug de hoy
+
+Disparado por un hallazgo real durante la verificación de modo enriquecido
+en `hermes-startup-next` (`R4_startup_sin_fundador` sobre "Virtual Atelier
+AI"): antes de asumir que era un caso aislado, se auditó directo contra la
+Neon compartida si el 500 de `/individuals` (ver sección de abajo) podía
+haber estado bloqueando también escrituras de relaciones (`/facts`) en
+otras startups reales.
+
+**Resultado de la auditoría** (`SELECT count(*) FROM startup_facts` +
+cruce contra `startup_individuals` para las 11 startups reales): **la
+tabla `startup_facts` tiene 0 filas, para las 11 startups, siempre** — no
+solo para la de prueba de hoy. 6 de las 11 tienen individuals reales
+(entre 5 y 9 cada una), así que hay hechos suficientes para que las
+reglas dependientes de relaciones (`R1_hipotesis_sin_experimento`,
+`R2_pivote_sin_aprendizaje`, `R4_startup_sin_fundador`) tengan algo que
+evaluar — y ninguna tiene una sola relación registrada.
+
+**Causa real, confirmada por grep, no por el bug de hoy**: `startup-advisor`
+(`src/lib/ontologyEngine.ts`, el único cliente real de este servicio) solo
+implementa `createIndividual()` — **no existe ningún `createFact()` ni
+ninguna llamada a `POST /startups/{id}/facts` en ningún lugar del código**.
+`startup-next` tampoco escribe nunca a `ontology-engine` (confirmado por
+grep en su propio `src/lib/ontologyEngine.ts`: solo hace `GET`). El fix
+del 500 de hoy **no es la causa** de esta ausencia de datos — el
+endpoint `/facts` existe en este servicio (scaffold de Fase 2) pero nunca
+tuvo un caller real. Consecuencia distinta y más benigna de lo que
+parecía al principio: no hay evidencia de que el bug haya causado pérdida
+silenciosa de datos ya escritos.
+
+**Efecto real en producción, no solo teórico**: toda regla que dependa de
+relaciones (R1, R2, R4) se dispara **siempre** para cualquier startup real
+con individuals, sin importar si el fundador de verdad hizo o no esos
+pasos — porque la relación nunca pudo registrarse, para ninguna startup,
+nunca. Esto afecta a `hallazgos_ontologia` en modo enriquecido para
+usuarios reales de `startup-next` hoy mismo, no es hipotético.
+
+**No se corrige en esta sesión** — implementar `createFact()` del lado de
+`startup-advisor` (y decidir en qué punto del flujo de entrevista/informe
+llamarlo) es una pieza de producto nueva, no un fix de bug, y excede el
+alcance de "cerrar el camino PDF firmado / modo enriquecido". Queda
+anotado como pendiente real para decidir en una sesión futura si vale la
+pena implementarlo, o si el motor de reglas debería tratar "sin datos de
+relación" distinto de "relación ausente confirmada".
+
 ## Fix real: 500 sin detalle en `POST /startups/{id}/individuals` y `/facts`
 
 **Causa raíz, confirmada con evidencia real, no supuesta**: la tabla
