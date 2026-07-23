@@ -17,31 +17,21 @@ export async function describeConcept(conceptId: string) {
   return request(`/concepts/${conceptId}`);
 }
 
-export async function validateStartup(startupId: string) {
-  return request(`/startups/${startupId}/validate`);
-}
-
-export async function getStartupGraph(startupId: string) {
-  return request(`/startups/${startupId}/graph`);
-}
-
 export async function getSubclasses(conceptId: string): Promise<string[]> {
   const result = await request(`/concepts/${conceptId}/subclasses`);
   return result.subclasses as string[];
 }
 
-export async function createIndividual(
-  startupId: string,
-  individual: {
-    id: string;
-    concept_id: string;
-    label: string;
-    attributes?: Record<string, unknown>;
-  },
-) {
-  return request(`/startups/${startupId}/individuals`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(individual),
-  });
+// Shape real de GET /concepts/{id}/prerequisitos (ontology-engine): {concept_id,
+// prerequisitos: [{concept_id, relacion, distancia}]} — prerequisitos: [] tanto
+// si no hay precedentes como si el concept_id no existe, nunca un error.
+export type Prerequisito = { concept_id: string; relacion: string; distancia: number };
+
+export async function getPrerequisitos(conceptId: string): Promise<Prerequisito[]> {
+  try {
+    const result = await request(`/concepts/${conceptId}/prerequisitos`);
+    return result.prerequisitos as Prerequisito[];
+  } catch {
+    return [];
+  }
 }

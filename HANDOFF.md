@@ -1,6 +1,73 @@
 # HANDOFF — startup-advisor
 
-Última actualización: 2026-07-21. Rama activa: `phase-1-ontology-engine`.
+Última actualización: 2026-07-23. Rama activa: `phase-1-ontology-engine`.
+
+## Razonamiento de ontología pasa a TBox-only (Opción C): sin ABox, sin PDF firmado (2026-07-23)
+
+Ejecuta el punto 6 (plan de migración) de
+`startup-next/diseno_ontology_engine_solo_consulta.md`, con Opción C ya
+confirmada para el punto 3: en vez de escribir individuals reales y
+correr `validate()` contra ellos durante la entrevista, se identifican
+los conceptos del TBox que la entrevista tocó y se consultan sus
+prerrequisitos genéricos (`GET /concepts/{id}/prerequisitos`), con el
+mismo encuadre que ya usa `orchestratorModoBase.ts` de `startup-next`
+(información metodológica general, nunca una evaluación de hechos reales
+de esta startup).
+
+### `ontologyReasoning.ts`: reescrito, sin ABox
+
+`runOntologyReasoning()` cambia de firma: ya no recibe
+`startupId`/`startupName`/`founderUserId` (no hay ningún individual que
+crear) — solo `transcript`. `ensureCoreIndividuals`/
+`recordMentionedIndividuals`/`createIndividual`/`getStartupGraph`/
+`validateStartup` eliminados. Nueva función `identificarConceptosTocados`
+(mismo mecanismo de tool-calling de Anthropic que ya existía, ahora sin
+persistir nada) + `buildConsideracionesMetodologicas` (una llamada a
+`getPrerequisitos` por concepto tocado, narrada con el mismo criterio de
+`FRASE_ENCUADRE`). Caller actualizado en
+`src/app/api/interview/[id]/chat/route.ts` (ya no busca
+`getStartupById` — solo hacía falta para el registro de ABox retirado).
+
+`src/lib/ontologyEngine.ts`: agregado `getPrerequisitos`/`Prerequisito`
+(mismo contrato que el cliente de `startup-next`). `createIndividual`,
+`getStartupGraph`, `validateStartup` eliminados (sin caller, endpoints
+retirados del lado de `ontology-engine`).
+
+### Mecanismo de firma PDF: retirado por completo
+
+`src/lib/pdf-signing.ts` eliminado. `report-pdf.tsx` ya no recibe
+`verification` ni renderiza el bloque `startup-next-verification`
+(tampoco necesita ya el `Font.registerHyphenationCallback`, que existía
+solo para no corromper la firma al extraer texto). Caller
+(`api/interview/[id]/report/pdf/route.ts`) simplificado, sin `signReport`.
+`scripts/gen-test-signed-pdf.ts` (arnés de prueba del mecanismo retirado)
+eliminado. `PDF_SIGNING_PRIVATE_KEY` retirado de Vercel (`vercel env rm`,
+producción) tras confirmar que ya no hay ningún código que lo lea.
+
+### Verificación con evidencia real
+
+- `npx tsc --noEmit` limpio.
+- `npm run build` (Next.js, Turbopack) limpio, mismas rutas que antes.
+- Arnés de un solo uso (`scripts/verify-tbox-only-reasoning.ts`,
+  etiquetado `TEST_DESECHABLE`, borrado tras verificar — mismo criterio
+  que `fakeSummarize`/scripts anteriores del proyecto): llamó a
+  `runOntologyReasoning()` real (Anthropic real + `ontology-engine` real)
+  con una transcripción sintética mencionando un MVP — devolvió
+  `consideraciones_metodologicas` con `PREREQUISITO_GENERICO` narrado
+  correctamente (MVP → Experiment → Hypothesis), confirmando el camino
+  TBox-only funciona de punta a punta sin escribir ni leer ningún ABox.
+- Deploy real a producción (`vercel deploy --prod`, bloqueado primero por
+  el mismo problema de Avast/TLS ya documentado más abajo en este mismo
+  archivo — resuelto pausando Avast). `GET /` → `200`; la ruta del PDF
+  responde vía el middleware de Clerk (confirma que el deploy corre, no
+  un crash) — **no se pudo verificar una entrevista real de punta a punta
+  a través del navegador en esta sesión** (Clerk requiere sesión real de
+  navegador; no había herramienta de automatización de navegador
+  disponible en este entorno). Pendiente real: verificar manualmente una
+  entrevista completa en `https://startup-advisor-sand.vercel.app` si se
+  quiere confirmar el camino HTTP/Clerk además de la lógica en sí.
+- Redeploy adicional tras `vercel env rm` para que la instancia en
+  ejecución ya no tenga `PDF_SIGNING_PRIVATE_KEY` en su entorno.
 
 ## Pendiente revisado: "entrevista terminando de forma abrupta" — no reproducido en esta sesión
 

@@ -1,6 +1,201 @@
 # HANDOFF — ontology-engine
 
-Última actualización: 2026-07-19.
+Última actualización: 2026-07-23.
+
+## Puntos 1/3/4/5/6 del plan de migración, ejecutados: servicio puramente de consulta
+
+Continúa el "Borrado completo del ABox" de esta misma sección más abajo
+(punto 2, ya cerrado) con los puntos 1/3/4/5/6 de
+`startup-next/diseno_ontology_engine_solo_consulta.md`, con las tres
+decisiones abiertas ya confirmadas por el usuario: Opción C del punto 3
+(TBox-only también para `startup-advisor`, no solo `startup-next`),
+retiro completo (no solo deshabilitado) del mecanismo de firma PDF, y
+drop real de las tablas de ABox (no dejarlas vacías).
+
+### Código: endpoints, motor de reglas y carga de ABox retirados
+
+`main.py` reescrito — quedan solo los 5 endpoints de TBox (`/health`,
+`/concepts`, `/concepts/{id}`, `/concepts/{id}/subclasses`,
+`/concepts/{id}/prerequisitos`). Retirados: `GET /startups/{id}/graph`,
+`GET /startups/{id}/neighbors/{node_id}` (sin caller en ningún repo desde
+antes de esta sesión, confirmado por grep), `GET /startups/{id}/validate`,
+`POST /startups/{id}/individuals`, `POST /startups/{id}/facts`.
+
+`rules.py` eliminado (sin caller posible, `/validate` retirado). `graph.py`
+reescrito: se retiran `load_startup_graph`, `load_individuals_from_rows`,
+`load_facts_from_rows`, y los métodos `individuals()`/`neighbors_via()`/
+`ancestors()`/`stats()` de `OntologyGraph` (sin caller tras retirar
+`rules.py` y los endpoints de ABox). Quedan solo los métodos de TBox
+(`concepts`, `subclasses_of`, `precedents_of`, `describe`).
+
+**Simplificación adicional, consecuencia directa de lo anterior**: como
+ya no queda ningún endpoint que haga queries por request contra Postgres
+(el TBox se carga una sola vez al arrancar el proceso), se retira el
+`ConnectionPool` (`psycopg_pool`, `min_size=1, max_size=5`,
+`check=check_connection`) a favor de una única conexión abierta-cargada-
+cerrada en el `lifespan`. Esto también elimina de raíz la clase de
+problema que motivó `check=check_connection` (conexiones pooled
+obsoletas tras el autosuspend de Neon) — ya no hay ninguna conexión
+persistente que pueda quedar obsoleta. `psycopg-pool` y `pydantic`
+(solo usado por los modelos `IndividualIn`/`FactIn`, retirados) quitados
+de `requirements.txt`.
+
+`Dockerfile`: `COPY` ya no incluye `rules.py` (eliminado).
+
+### Tests: los que dependían de ABox, retirados; el resto, verificado limpio
+
+`tests/test_parity.py`: `test_validate_rules_detect_hypothesis_without_experiment`
+y `test_validate_nubedoc_case_is_clean` (ejercitaban `rules.py`/ABox)
+eliminados. Los 6 tests de TBox puro (conteo de conceptos, subclases,
+`describe`, `precedents_of`) siguen pasando sin cambios —
+`pytest tests/test_parity.py -v` → 7 passed, 1 skipped (el de integración
+real contra Postgres, opt-in de siempre).
+
+### Migración de esquema: tablas de ABox dropeadas, no solo vaciadas
+
+`sql/003_drop_abox_tables.sql` (nueva): `DROP TABLE startup_facts` y
+`DROP TABLE startup_individuals` (en ese orden, por la FK compuesta de
+`startup_facts` hacia `startup_individuals`). La FK
+`fk_startup_individuals_startup` (hacia `startups.id`, aplicada directo
+en producción, nunca en un `.sql` trackeado — ver "Hallazgo secundario"
+más abajo) se elimina implícitamente al dropear `startup_individuals`.
+
+Aplicada contra la Neon compartida real, con evidencia antes/después:
+
+| | Antes | Después |
+|---|---|---|
+| Tablas en `public` | `..., startup_facts, startup_individuals, startups` | `..., startups` (sin `startup_facts`/`startup_individuals`) |
+| `ontology_concepts` | 43 | 43 (sin cambios) |
+| `ontology_relations` | 21 | 21 (sin cambios) |
+| `startups` (tabla de la app, no ABox) | 12 | 12 (sin cambios) |
+
+### Orden de despliegue: callers primero, servicio después, esquema al final
+
+Siguiendo el plan ya acordado (para no romper el servicio compartido a
+mitad de camino): 1) `startup-next` desplegado y verificado sin ninguna
+dependencia de ABox: 2) `startup-advisor` desplegado y verificado (lógica
+TBox-only confirmada con arnés real, ver su propio HANDOFF.md); 3) recién
+entonces `ontology-engine` desplegado con los endpoints retirados; 4)
+migración de esquema aplicada al final, con ambos callers ya sin ninguna
+llamada a las tablas que se dropean.
+
+### Verificación con evidencia real, contra producción
+
+Deploy real a `https://ontology-engine.fly.dev` (bloqueado primero por el
+mismo problema de Avast/TLS documentado más abajo en este archivo —
+resuelto pausando Avast; deploy también falló una vez por el `Dockerfile`
+sin actualizar, `COPY ... rules.py` con el archivo ya borrado — corregido
+antes de reintentar):
+
+- `GET /health` → `200 {"status":"ok","tbox_conceptos":43}`.
+- `GET /concepts/MVP/prerequisitos` → `200`, mismo resultado que antes de
+  la migración (Experiment, distancia 1; Hypothesis, distancia 2).
+- `GET /concepts/Hypothesis/subclasses` → `200`.
+- Los 5 endpoints retirados (`GET /startups/{id}/graph`,
+  `GET /startups/{id}/neighbors/{node}`, `GET /startups/{id}/validate`,
+  `POST /startups/{id}/individuals`, `POST /startups/{id}/facts`) → `404`
+  contra `startup_id`s reales (Cafelibros) y sintéticos, confirmado con
+  `curl` real después del deploy.
+- Repetido después del `DROP TABLE`: `/health` y
+  `/concepts/MVP/prerequisitos` siguen `200` idénticos — confirma que el
+  TBox en memoria no dependía de que las tablas de ABox siguieran
+  existiendo (nunca las lee desde que se retiró `load_startup_graph`).
+
+## Borrado completo del ABox (2026-07-23): ontology-engine pasa a TBox puro
+
+Motivado por una revisión de arquitectura documentada en
+`hermes-startup-next/HANDOFF_CONTEXTO_HISTORICO.md`, sección "Revisión de
+arquitectura (2026-07-21)": `ontology-engine` no tiene autenticación y
+persistía hechos reales de startups reales en un servicio compartido sin
+control de acceso — decisión explícita del usuario de borrar todo el ABox
+sin archivar, sin exportar antes, sin dejar rastro (aunque no se creía que
+hubiera contenido confidencial concreto). Este es el punto 2, ya decidido,
+de un encargo mayor de conversión de `ontology-engine` a servicio de solo
+consulta (TBox only) — ver `diseno_ontology_engine_solo_consulta.md` para
+el diseño completo de los puntos 1/3/4/5/6 (endpoints a retirar, impacto
+en modo enriquecido, PDF firmado, `/admin`, migración), que queda como
+propuesta pendiente de confirmación, no implementada todavía.
+
+### Inventario antes del borrado (evidencia real, query directa contra la Neon compartida `ep-morning-math-asb1bsnh`)
+
+| Tabla | Filas antes |
+|---|---|
+| `startups` | 12 |
+| `startup_individuals` | 42 (repartidas en 6 de las 12 startups, 5-9 c/u) |
+| `startup_facts` | 0 (ya documentado arriba en este mismo archivo) |
+| `ontology_concepts` (TBox) | 43 |
+| `ontology_relations` (TBox) | 21 |
+
+**Discrepancia real encontrada, no resuelta**: el usuario esperaba "11
+startups reales conocidas"; la tabla `startups` tiene 12 filas. La 12ª,
+`Prueba Fase 2` (id `1424ed1a-4a89-4a81-bdbb-64f56e5b46d5`), tenía 8
+individuals reales (hipótesis de negocio completas sobre "IA para
+pymes"), mismo `user_id` que la mayoría de las startups reales
+(`user_3Fm5WjRcPGfCa6uqEZ3I0446tKy`) — no es la fila de prueba ya borrada
+en la sesión anterior (`e643a3b4-...`, confirmado ausente antes de
+proceder). No se pudo determinar si es una startup real de ese fundador o
+un ensayo de Fase 2. No cambia la acción (se borró TODO el ABox, sin
+excepción, para las 12 filas por igual) pero queda anotado por si alguna
+sesión futura necesita reconciliar el conteo de "11" contra la realidad
+de la tabla.
+
+**Copias en otro lugar, verificado antes de borrar**:
+- Repo: `grep` de nombres reales de las 12 startups contra `.json`/`.csv`/`.sql`
+  en todo el árbol de trabajo (`startup-next`, `startup-next-ui`,
+  `hermes-startup-next`, `startup-advisor`) — sin resultados. No hay
+  ningún export ni dump del ABox en ningún repo.
+- **Neon (nivel proveedor), no verificable ni purgable desde esta
+  sesión**: no hay `NEON_API_KEY` en ningún `.env` del proyecto, así que
+  no hay acceso a la consola/API de Neon desde acá. Neon mantiene
+  point-in-time-recovery (WAL) por una ventana de retención propia del
+  plan (típicamente entre 24h y varios días), independiente de cualquier
+  `DELETE` ejecutado por SQL normal. El borrado de abajo saca los datos de
+  las tablas vivas y de cualquier lectura normal de la app, pero **no
+  garantiza "cero rastro" a nivel de infraestructura de Neon** hasta que
+  esa ventana de retención expire — señalado explícitamente, sin resolver
+  en esta sesión (haría falta entrar a la consola de Neon o pedir soporte
+  para confirmar/forzar la retención).
+
+### Borrado ejecutado
+
+```sql
+DELETE FROM startup_facts;       -- 0 filas borradas (ya estaba vacía)
+DELETE FROM startup_individuals; -- 42 filas borradas
+```
+
+### Verificación con evidencia real, después del borrado
+
+- Rowcount: `startup_individuals` → 0, `startup_facts` → 0.
+- TBox intacto, sin cambios: `ontology_concepts` → 43, `ontology_relations`
+  → 21 (mismos valores que antes del borrado). `startups` (tabla de la
+  app, no ABox, no tocada) → sigue en 12.
+- Contra `https://ontology-engine.fly.dev` real (no local): `GET
+  /startups/{id}/graph` para `Virtual Atelier AI`
+  (`31f11630-d907-4f16-be96-897e98c00d7c`) y `Cafelibros`
+  (`4df8de99-62aa-4211-b09c-e8b44fea38fb`, las dos con más individuals
+  antes del borrado) → `200 {"stats":{"conceptos":43,"individuos":0,...},
+  "individuals":[]}` para ambas, y también para un id inexistente
+  (`00000000-...`) — sin error, misma degradación con gracia ya existente
+  en el servicio. `GET /concepts` sigue devolviendo 43 conceptos.
+- Consecuencia esperada en `startup-next`: un run real contra
+  `https://startup-next.fly.dev` (`POST /runs` + `/start`) reusando el
+  `startup_id` real de Cafelibros devolvió `hallazgos_ontologia: []` y una
+  `justificacion` que dice explícitamente "No hay comentario del asesor
+  ni hechos registrados en la ontología, por lo que se decide por sentido
+  metodológico general" — confirma que `resolveOntologyContext()` cayó a
+  modo base automáticamente (`graph.individuals.length === 0`), sin
+  ningún cambio de código en `startup-next`. El run de prueba (`run_id
+  7f9b958e-241c-49a8-94d7-2231b7358500`) se borró después de verificar,
+  directo contra la Neon propia de `startup-next` (`next_action_runs` +
+  `next_action_clarifications`), mismo criterio de no dejar rastro de
+  pruebas ya usado en sesiones anteriores.
+
+**Nota operativa**: esta máquina sigue con el mismo problema de Avast
+interceptando TLS ya documentado (`CRYPT_E_NO_REVOCATION_CHECK` en
+`curl`/schannel) — esta vez resuelto sin pausar el antivirus, con `curl
+--ssl-no-revoke`, que evita la comprobación de revocación sin desactivar
+nada. Sigue pendiente la excepción permanente, no configurada en esta
+sesión tampoco.
 
 ## Pendiente real: `startup_facts` está vacía para las 11 startups reales — auditado, no es el bug de hoy
 

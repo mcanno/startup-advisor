@@ -11,7 +11,6 @@ import {
 import {
   addMessage,
   getInterviewForUser,
-  getStartupById,
   listMessages,
   saveReport,
 } from "@/lib/db/queries";
@@ -119,11 +118,6 @@ export async function POST(
 
           let reportToSave: ReportContent = report;
           try {
-            const startup = await getStartupById(interview.startupId);
-            if (!startup) {
-              throw new Error(`startup ${interview.startupId} no encontrada`);
-            }
-
             const transcript: { role: "user" | "assistant"; content: string }[] =
               history
                 .filter((m) => m.role !== "system")
@@ -135,12 +129,7 @@ export async function POST(
               transcript.push({ role: "assistant", content: assistantText });
             }
 
-            const hallazgos = await runOntologyReasoning(
-              interview.startupId,
-              startup.name,
-              userId,
-              transcript,
-            );
+            const hallazgos = await runOntologyReasoning(transcript);
             if (hallazgos) {
               reportToSave = { ...report, consideraciones_metodologicas: hallazgos };
             }

@@ -4,17 +4,8 @@ import {
   Text,
   View,
   StyleSheet,
-  Font,
 } from "@react-pdf/renderer";
 import type { ReportContent } from "@/lib/db/schema";
-
-// Sin esto, react-pdf hifena palabras largas sin espacios (base64,
-// UUIDs concatenados) al no caber en el ancho de pagina, insertando un
-// "-" en medio de la cadena -- corrompe la firma del bloque de
-// verificacion al extraer el texto. Con la palabra tratada como
-// indivisible, en el peor caso desborda la caja visualmente, pero el
-// texto extraido queda intacto (lo que importa para la verificacion).
-Font.registerHyphenationCallback((word) => [word]);
 
 const styles = StyleSheet.create({
   page: {
@@ -101,10 +92,6 @@ const styles = StyleSheet.create({
     fontWeight: 700,
     color: "#71717a",
   },
-  verificationLine: {
-    fontSize: 8,
-    marginBottom: 4,
-  },
 });
 
 const priorityStyles = {
@@ -116,11 +103,9 @@ const priorityStyles = {
 export function ReportPdf({
   title,
   report,
-  verification,
 }: {
   title: string;
   report: ReportContent;
-  verification: { startupId: string; reportId: string; timestamp: string; signature: string };
 }) {
   return (
     <Document>
@@ -180,15 +165,6 @@ export function ReportPdf({
             </View>
           ))}
         </View>
-      </Page>
-
-      <Page size="A4" style={styles.page}>
-        <Text style={styles.verificationLine}>---</Text>
-        <Text style={styles.verificationLine}>startup-next-verification</Text>
-        <Text style={styles.verificationLine}>startup_id: {verification.startupId}</Text>
-        <Text style={styles.verificationLine}>report_id: {verification.reportId}</Text>
-        <Text style={styles.verificationLine}>timestamp: {verification.timestamp}</Text>
-        <Text style={styles.verificationLine}>signature: {verification.signature}</Text>
       </Page>
     </Document>
   );
