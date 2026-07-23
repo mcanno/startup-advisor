@@ -27,7 +27,10 @@ export async function GET(
   }
 
   const pdfBuffer = await renderToBuffer(
-    ReportPdf({ title: interview.title, report: report.content }),
+    ReportPdf({
+      title: interview.title,
+      report: report.content,
+    }),
   );
 
   const filename = `informe-${interview.title

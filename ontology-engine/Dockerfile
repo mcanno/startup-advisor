@@ -1,5 +1,6 @@
 # El ontology-engine es un microservicio Python de larga duración
-# (mantiene el TBox cacheado en memoria + pool de conexiones a Postgres).
+# (mantiene el TBox cacheado en memoria; TBox puro, sin ABox de ninguna
+# startup real, ver diseno_ontology_engine_solo_consulta.md en startup-next).
 # Vercel no ejecuta este tipo de proceso; despliega esta imagen en
 # Railway, Fly.io, Render o un contenedor propio, y expón su URL
 # a la app Next.js vía la variable ONTOLOGY_ENGINE_URL.
@@ -11,7 +12,7 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY domain_ontology.py graph.py rules.py main.py seed.py ./
+COPY domain_ontology.py graph.py main.py seed.py ./
 
 EXPOSE 8000
 
